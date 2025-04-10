@@ -13,7 +13,8 @@ const App: FC<AppProps> = ({ Component, pageProps }) => {
     return (
         <>
           <Head>
-            <title>Solana Scaffold Lite</title>
+            <title>AlyraSign</title>
+            <meta name="description" content="Application de gestion des présences pour les étudiants" />
           </Head>
 
           <ContextProvider>
