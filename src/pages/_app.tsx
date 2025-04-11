@@ -35,7 +35,8 @@ const App: FC<AppProps> = ({ Component, pageProps }) => {
         <>
           <Head>
             <title>AlyraSign</title>
-            <meta name="description" content="Application de gestion des présences pour les étudiants" />
+            <link rel="icon" href="/AlyraSign.png" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
           </Head>
 
           <ContextProvider>
