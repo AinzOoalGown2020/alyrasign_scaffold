@@ -145,26 +145,26 @@ export default function BlockchainAdmin() {
           <Card className="p-6 bg-gray-50">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <h3 className="text-md font-medium mb-2">Wallet connecté</h3>
-                <div className="bg-white p-3 rounded border text-sm font-mono break-all">
+                <h3 className="text-md font-medium mb-2 text-gray-700">Wallet connecté</h3>
+                <div className="bg-white p-3 rounded border text-sm font-mono break-all text-gray-800">
                   {publicKey?.toString()}
                 </div>
               </div>
               <div>
-                <h3 className="text-md font-medium mb-2">Programme ID</h3>
-                <div className="bg-white p-3 rounded border text-sm font-mono break-all">
+                <h3 className="text-md font-medium mb-2 text-gray-700">Programme ID</h3>
+                <div className="bg-white p-3 rounded border text-sm font-mono break-all text-gray-800">
                   {process.env.NEXT_PUBLIC_SOLANA_PROGRAM_ID || 'Non configuré'}
                 </div>
               </div>
               <div>
-                <h3 className="text-md font-medium mb-2">Réseau Solana</h3>
-                <div className="bg-white p-3 rounded border text-sm">
+                <h3 className="text-md font-medium mb-2 text-gray-700">Réseau Solana</h3>
+                <div className="bg-white p-3 rounded border text-sm text-gray-800">
                   {process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'devnet'}
                 </div>
               </div>
               <div>
-                <h3 className="text-md font-medium mb-2">URL RPC</h3>
-                <div className="bg-white p-3 rounded border text-sm font-mono break-all">
+                <h3 className="text-md font-medium mb-2 text-gray-700">URL RPC</h3>
+                <div className="bg-white p-3 rounded border text-sm font-mono break-all text-gray-800">
                   {process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'URL par défaut'}
                 </div>
               </div>
