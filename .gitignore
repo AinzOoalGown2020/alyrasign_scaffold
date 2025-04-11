@@ -25,6 +25,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+.env
 .env.local
 .env.development.local
 .env.test.local
@@ -38,3 +39,14 @@ yarn-error.log*
 
 # logs
 *.log
+
+# Solana specific
+**/target/
+**/target/deploy/
+**/target/debug/
+**/test-ledger/
+**/test-files/
+**/*.keypair.json
+**/admin-keypair.json
+**/deploy-keypair.json
+**/ledger.lock
