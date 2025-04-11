@@ -26,26 +26,18 @@ export const AccessPage: FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [requests, setRequests] = useState<AccessRequest[]>([]);
-  const [userRole, setUserRole] = useState<'admin' | 'user'>('user');
-  const [submitted, setSubmitted] = useState(false);
   const [hasPendingRequest, setHasPendingRequest] = useState(false);
   const [role, setRole] = useState<string>('STUDENT');
   const [message, setMessage] = useState<string>('');
 
   useEffect(() => {
-    const loadRequests = async () => {
+    const checkPendingRequest = async () => {
       try {
-        setLoading(true);
-        setError(null);
-
         if (!anchorWallet) {
-          setError("Veuillez connecter votre wallet");
           return;
         }
 
         const accessRequests = await getAccessRequests(anchorWallet, connection);
-        setRequests(accessRequests);
         
         // Vérifier si l'utilisateur a déjà une demande en attente
         const hasPending = accessRequests.some(
@@ -54,14 +46,11 @@ export const AccessPage: FC = () => {
         );
         setHasPendingRequest(hasPending);
       } catch (err) {
-        console.error('Erreur lors du chargement des demandes:', err);
-        setError("Erreur lors du chargement des demandes");
-      } finally {
-        setLoading(false);
+        console.error('Erreur lors de la vérification des demandes:', err);
       }
     };
 
-    loadRequests();
+    checkPendingRequest();
   }, [anchorWallet, connection]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -78,12 +67,8 @@ export const AccessPage: FC = () => {
       await createAccessRequest(anchorWallet, connection, role, message);
 
       setSuccess(true);
-      setSubmitted(true);
       toast.success("Demande d'accès envoyée avec succès!");
-      
-      // Recharger les demandes
-      const accessRequests = await getAccessRequests(anchorWallet, connection);
-      setRequests(accessRequests);
+      setHasPendingRequest(true);
     } catch (err) {
       console.error('Erreur lors de la création de la demande:', err);
       setError("Erreur lors de la création de la demande");
@@ -99,8 +84,8 @@ export const AccessPage: FC = () => {
         <div className="container mx-auto px-4 py-8">
           <h1 className="text-3xl font-bold mb-6 text-white">Demande d'accès</h1>
           <Card>
-            <div className="text-center py-12">
-              <p className="text-lg text-gray-200">Veuillez connecter votre portefeuille pour demander un accès.</p>
+            <div className="text-center py-8">
+              <p className="text-lg text-white">Veuillez connecter votre portefeuille pour demander un accès.</p>
             </div>
           </Card>
         </div>
@@ -111,89 +96,83 @@ export const AccessPage: FC = () => {
   return (
     <Layout>
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8">Demande d'accès</h1>
+        <h1 className="text-3xl font-bold mb-8 text-white">Demande d'accès</h1>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div>
-            <TransactionFees connection={connection} />
+        <div className="max-w-2xl mx-auto">
+          <Card>
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-white mb-4">Votre wallet</h2>
+              <div className="bg-gray-700 rounded-md p-4">
+                <p className="text-white text-sm break-all">
+                  {publicKey?.toString()}
+                </p>
+              </div>
+            </div>
             
-            <form onSubmit={handleSubmit} className="mt-8">
-              <div>
-                <label htmlFor="role" className="block text-sm font-medium text-gray-200">
-                  Rôle souhaité
-                </label>
-                <select
-                  id="role"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                >
-                  <option value="STUDENT">Étudiant</option>
-                  <option value="TEACHER">Formateur</option>
-                </select>
-              </div>
-              
-              <div>
-                <label htmlFor="message" className="block text-sm font-medium text-gray-200">
-                  Message (optionnel)
-                </label>
-                <textarea
-                  id="message"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  rows={4}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                />
-              </div>
-              
-              <div>
-                <Button type="submit" disabled={loading}>
-                  Envoyer la demande
-                </Button>
-              </div>
-            </form>
-          </div>
+            <TransactionFees connection={connection} />
+          </Card>
           
-          <div>
-            {loading ? (
-              <Card>
-                <div className="text-center py-12">
-                  <p className="text-lg text-gray-200">Chargement des demandes...</p>
+          {hasPendingRequest ? (
+            <Card className="mt-8">
+              <div className="text-center py-8">
+                <h2 className="text-xl font-semibold text-white mb-4">Demande en cours</h2>
+                <p className="text-lg text-white">Vous avez déjà une demande d'accès en cours de traitement.</p>
+                <p className="text-sm text-gray-300 mt-2">Un administrateur examinera votre demande prochainement.</p>
+              </div>
+            </Card>
+          ) : (
+            <Card className="mt-8">
+              <h2 className="text-xl font-semibold text-white mb-4">Nouvelle demande</h2>
+              <form onSubmit={handleSubmit}>
+                <div className="mb-4">
+                  <label htmlFor="role" className="block text-sm font-medium text-white mb-2">
+                    Rôle souhaité
+                  </label>
+                  <select
+                    id="role"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                  >
+                    <option value="STUDENT">Étudiant</option>
+                    <option value="TEACHER">Formateur</option>
+                  </select>
                 </div>
-              </Card>
-            ) : error ? (
-              <Card>
-                <div className="text-center py-12">
-                  <p className="text-lg text-red-500">{error}</p>
+                
+                <div className="mb-4">
+                  <label htmlFor="message" className="block text-sm font-medium text-white mb-2">
+                    Message (optionnel)
+                  </label>
+                  <textarea
+                    id="message"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    rows={4}
+                    className="mt-1 block w-full rounded-md bg-gray-700 border-gray-600 text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                    placeholder="Expliquez brièvement pourquoi vous souhaitez ce rôle..."
+                  />
                 </div>
-              </Card>
-            ) : hasPendingRequest ? (
-              <Card>
-                <div className="text-center py-12">
-                  <p className="text-lg text-gray-200">Vous avez déjà une demande d'accès en cours.</p>
+                
+                <div className="mt-6">
+                  <Button type="submit" disabled={loading}>
+                    Envoyer la demande
+                  </Button>
                 </div>
-              </Card>
-            ) : submitted ? (
-              <Card>
-                <div className="text-center py-12">
-                  <p className="text-lg text-gray-200">Votre demande d'accès a été envoyée avec succès.</p>
-                </div>
-              </Card>
-            ) : (
-              <Card>
-                <div className="text-center py-12">
-                  <p className="text-lg text-gray-200">Demandes d'accès:</p>
-                </div>
-                <div className="mt-4">
-                  {requests.map((req) => (
-                    <div key={req.id} className="text-sm text-gray-200 mb-2">
-                      {req.walletAddress} - {req.requestedRole} - {req.status}
-                    </div>
-                  ))}
-                </div>
-              </Card>
-            )}
-          </div>
+              </form>
+            </Card>
+          )}
+          
+          {success && (
+            <div className="mt-4 p-4 bg-green-800 text-white rounded-md">
+              <p className="text-center">Votre demande d'accès a été envoyée avec succès!</p>
+            </div>
+          )}
+          
+          {error && (
+            <div className="mt-4 p-4 bg-red-800 text-white rounded-md">
+              <p className="text-center">{error}</p>
+            </div>
+          )}
         </div>
       </div>
     </Layout>

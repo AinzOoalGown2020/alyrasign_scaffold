@@ -28,7 +28,8 @@ const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const network = networkConfiguration as WalletAdapterNetwork;
     const endpoint = useMemo(() => clusterApiUrl(networkConfiguration as WalletAdapterNetwork), [networkConfiguration]);
 
-    console.log(network);
+    console.log("Réseau configuré:", network);
+    console.log("Endpoint:", endpoint);
 
     const wallets = useMemo(
         () => [
@@ -46,31 +47,30 @@ const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const onError = useCallback(
         (error: WalletError) => {
             notify({ type: 'error', message: error.message ? `${error.name}: ${error.message}` : error.name });
-            console.error(error);
+            console.error("Erreur de wallet:", error);
         },
         []
     );
 
     return (
-        // TODO: updates needed for updating and referencing endpoint: wallet adapter rework
         <ConnectionProvider endpoint={endpoint}>
             <WalletProvider wallets={wallets} onError={onError} autoConnect={autoConnect}>
                 <ReactUIWalletModalProviderDynamic>
                     {children}
                 </ReactUIWalletModalProviderDynamic>
-			</WalletProvider>
+            </WalletProvider>
         </ConnectionProvider>
     );
 };
 
 export const ContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
     return (
-        <>
-            <NetworkConfigurationProvider>
-                <AutoConnectProvider>
-                    <WalletContextProvider>{children}</WalletContextProvider>
-                </AutoConnectProvider>
-            </NetworkConfigurationProvider>
-        </>
+        <NetworkConfigurationProvider>
+            <AutoConnectProvider>
+                <WalletContextProvider>
+                    {children}
+                </WalletContextProvider>
+            </AutoConnectProvider>
+        </NetworkConfigurationProvider>
     );
 };
