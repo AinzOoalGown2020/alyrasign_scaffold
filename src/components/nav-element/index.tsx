@@ -13,6 +13,7 @@ type NavElementProps = {
     chipLabel?: string;
     disabled?: boolean;
     navigationStarts?: () => void;
+    className?: string;
 };
 
 const NavElement = ({
@@ -22,6 +23,7 @@ const NavElement = ({
     scroll,
     disabled,
     navigationStarts = () => {},
+    className,
 }: NavElementProps) => {
     const router = useRouter();
     const isActive = href === router.asPath || (as && as === router.asPath);
@@ -46,8 +48,8 @@ const NavElement = ({
             passHref
             className={cn(
                 'group flex h-full flex-col items-center justify-between',
-                disabled &&
-                    'pointer-events-none cursor-not-allowed opacity-50',
+                disabled ? 'pointer-events-none cursor-not-allowed opacity-50' : '',
+                className || ''
             )}
             onClick={() => navigationStarts()}
         >

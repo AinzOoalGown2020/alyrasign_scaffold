@@ -1,6 +1,7 @@
 // Next, React
-import { FC, useEffect } from 'react';
+import { FC, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import Image from 'next/image';
 
 // Wallet
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
@@ -9,13 +10,25 @@ import dynamic from 'next/dynamic';
 // Store
 import useUserSOLBalanceStore from '../../stores/useUserSOLBalanceStore';
 
-// Constantes
-const DEV_ADDRESS = "79ziyYSUHVNENrJVinuotWZQ2TX7n44vSeo1cgxFPzSy";
+// Variables d'environnement
+const DEV_ADDRESS = process.env.NEXT_PUBLIC_ADMIN_WALLET;
+const USE_BLOCKCHAIN = process.env.NEXT_PUBLIC_USE_BLOCKCHAIN === "true";
 
 const WalletMultiButtonDynamic = dynamic(
   async () => (await import('@solana/wallet-adapter-react-ui')).WalletMultiButton,
   { ssr: false }
 );
+
+interface Request {
+  walletAddress: string;
+  status: string;
+  requestedRole: string;
+  id: string;
+}
+
+interface ProcessedRequest extends Request {
+  processedAt: string;
+}
 
 export const HomeView: FC = () => {
   const wallet = useWallet();
@@ -24,187 +37,184 @@ export const HomeView: FC = () => {
   
   const { getUserSOLBalance } = useUserSOLBalanceStore();
 
+  // Initialiser le localStorage au chargement
+  useEffect(() => {
+    console.log("Initialisation du localStorage");
+    if (!localStorage.getItem('alyraSign_pendingRequests')) {
+      localStorage.setItem('alyraSign_pendingRequests', JSON.stringify([]));
+    }
+    if (!localStorage.getItem('alyraSign_processedRequests')) {
+      localStorage.setItem('alyraSign_processedRequests', JSON.stringify({}));
+    }
+  }, []);
+
   // Fonction pour vérifier le rôle de l'utilisateur sur la blockchain Solana
-  const checkUserRole = async () => {
-    if (!wallet.publicKey) return null;
-    
-    // Simulation de vérification de rôle (à remplacer par une vraie vérification)
-    if (wallet.publicKey.toString() === DEV_ADDRESS) {
-      console.log("Utilisateur identifié comme développeur/formateur");
-      
-      // Stocker l'information de reconnexion pour prévenir les boucles infinies
-      localStorage.setItem('alyraSign_lastConnectedRole', 'formateur');
-      localStorage.setItem('alyraSign_lastConnectedWallet', wallet.publicKey.toString());
-      
+  const checkUserRole = useCallback(async () => {
+    if (!wallet.publicKey) {
+      console.log('Pas de wallet connecté');
+      return null;
+    }
+
+    const currentWalletAddress = wallet.publicKey.toString();
+    console.log('Vérification du rôle pour:', currentWalletAddress);
+
+    // Vérifier si c'est l'adresse de développement
+    if (currentWalletAddress === DEV_ADDRESS) {
+      console.log('Adresse de développement détectée - Rôle: formateur');
       return 'formateur';
     }
-    
-    // POUR DÉMONSTRATION UNIQUEMENT: Liste d'adresses de test avec des rôles prédéfinis
-    // À remplacer par une vérification blockchain réelle en production
-    const testAddresses = {
-      // Vous pouvez ajouter ici les adresses de vos wallets de test
-      // Format: 'adresse_du_wallet': 'role'
-      '5YNmX8xXSWcLBYkVkgZ1ZQQqJ3oJRSB1MwYJbxnQP5NZ': 'etudiant',
-      'C8DRQgE3K8A9vLT9UmgHDkEF8fJhpuRRZd6hNzVDADiL': 'etudiant',
-      'AGsJu1jZmFK9SMD4KrEMGU89VvUT8CcMEGLLmNNG1bHT': 'formateur'
-      // Ajoutez d'autres adresses au besoin
-    };
-    
-    // Vérifier si l'adresse est dans la liste des adresses de test
-    const currentWalletAddress = wallet.publicKey.toString();
-    if (testAddresses[currentWalletAddress]) {
-      console.log("Utilisateur identifié comme", testAddresses[currentWalletAddress], "dans la liste de test");
-      
-      // Stocker l'information pour éviter des appels répétés
-      localStorage.setItem('alyraSign_lastConnectedRole', testAddresses[currentWalletAddress]);
-      localStorage.setItem('alyraSign_lastConnectedWallet', currentWalletAddress);
-      
-      return testAddresses[currentWalletAddress];
+
+    // Vérifier le localStorage pour les informations de reconnexion
+    const lastConnectedRole = localStorage.getItem('alyraSign_lastConnectedRole');
+    const lastConnectedWallet = localStorage.getItem('alyraSign_lastConnectedWallet');
+    const onDashboard = localStorage.getItem('alyraSign_onDashboard') === 'true';
+
+    console.log('Informations de reconnexion:', {
+      lastConnectedRole,
+      lastConnectedWallet,
+      onDashboard
+    });
+
+    if (lastConnectedWallet === currentWalletAddress && lastConnectedRole) {
+      console.log('Utilisateur reconnecté - Rôle:', lastConnectedRole);
+      return lastConnectedRole;
     }
-    
-    // Vérification réelle sur la blockchain Solana (code à décommenter et implémenter)
-    /*
-    try {
-      // Créer une connexion à Solana
-      const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-      
-      // ID du programme Solana déployé
-      const programId = new PublicKey('VOTRE_PROGRAM_ID_ICI');
-      
-      // Dériver l'adresse du compte de token (PDA) pour cet utilisateur
-      // Cette adresse est déterministe et basée sur le wallet de l'utilisateur
-      const [userRoleAccount, _] = await PublicKey.findProgramAddress(
-        [
-          Buffer.from("role"),
-          wallet.publicKey.toBuffer()
-        ],
-        programId
-      );
-      
-      // Vérifier si le compte existe
-      const accountInfo = await connection.getAccountInfo(userRoleAccount);
-      
-      if (accountInfo) {
-        // Désérialiser les données du compte pour récupérer le rôle
-        // La structure exacte dépendra de votre programme Solana
-        const roleData = borsh.deserialize(
-          // Schéma de désérialisation (défini selon votre programme)
-          {
-            schema: USER_ROLE_SCHEMA,
-            class: UserRoleAccount
-          },
-          accountInfo.data
-        );
-        
-        console.log('Rôle trouvé sur la blockchain:', roleData.role);
-        
-        // Stocker l'information pour éviter des appels répétés
-        localStorage.setItem('alyraSign_lastConnectedRole', roleData.role);
-        localStorage.setItem('alyraSign_lastConnectedWallet', wallet.publicKey.toString());
-        
-        return roleData.role; // 'etudiant' ou 'formateur'
-      } else {
-        console.log('Aucun compte de rôle trouvé pour cet utilisateur sur la blockchain');
-      }
-    } catch (error) {
-      console.error('Erreur lors de la vérification du rôle sur la blockchain:', error);
-    }
-    */
-    
-    // En attendant l'implémentation blockchain, utiliser le localStorage
+
+    // Récupérer les demandes d'accès
     const pendingRequestsJson = localStorage.getItem('alyraSign_pendingRequests');
     const processedRequestsJson = localStorage.getItem('alyraSign_processedRequests');
-    
-    console.log('Données localStorage - Demandes:', pendingRequestsJson);
-    console.log('Données localStorage - Traitements:', processedRequestsJson);
-    
+
     if (pendingRequestsJson && processedRequestsJson) {
-      try {
-        const pendingRequests = JSON.parse(pendingRequestsJson);
-        const processedRequests = JSON.parse(processedRequestsJson);
-        
-        // Trouver la demande de l'utilisateur actuel
-        const currentWalletAddress = wallet.publicKey.toString();
-        console.log('Recherche de demandes pour:', currentWalletAddress);
-        
-        const userRequest = pendingRequests.find(req => req.walletAddress === currentWalletAddress);
-        console.log('Demande trouvée:', userRequest);
-        
-        // Vérifier si la demande a été approuvée
-        if (userRequest) {
-          console.log('Statut de la demande:', processedRequests[userRequest.id]);
-          
-          if (processedRequests[userRequest.id] === 'approved') {
-            console.log('Demande APPROUVÉE - Rôle attribué:', userRequest.requestedRole);
-            
-            // Stocker l'information de reconnexion pour prévenir les boucles infinies
-            localStorage.setItem('alyraSign_lastConnectedRole', userRequest.requestedRole);
-            localStorage.setItem('alyraSign_lastConnectedWallet', currentWalletAddress);
-            
-            return userRequest.requestedRole; // 'etudiant' ou 'formateur'
-          }
+      const pendingRequests = JSON.parse(pendingRequestsJson);
+      const processedRequests = JSON.parse(processedRequestsJson);
+
+      console.log('Demandes en attente:', pendingRequests);
+      console.log('Demandes traitées:', processedRequests);
+
+      // Vérifier les demandes traitées
+      for (const requestId in processedRequests) {
+        const request = processedRequests[requestId];
+        if (request.walletAddress === currentWalletAddress && request.status === 'approved') {
+          console.log('Demande approuvée trouvée:', request);
+          localStorage.setItem('alyraSign_lastConnectedRole', request.requestedRole);
+          localStorage.setItem('alyraSign_lastConnectedWallet', currentWalletAddress);
+          localStorage.setItem('alyraSign_onDashboard', 'false');
+          return request.requestedRole;
         }
-      } catch (e) {
-        console.error('Erreur lors de la vérification du rôle:', e);
+      }
+
+      // Vérifier les demandes en attente
+      const userPendingRequests = pendingRequests.filter(
+        (req: any) => req.walletAddress === currentWalletAddress
+      );
+
+      if (userPendingRequests.length > 0) {
+        console.log('Demande en attente trouvée:', userPendingRequests[0]);
+        return null; // Retourner null pour indiquer qu'une demande est en cours
       }
     }
-    
-    console.log('Aucun rôle trouvé pour cet utilisateur');
-    return null; // Par défaut, pas de rôle
-  };
 
-  useEffect(() => {
-    const checkAndRedirect = async () => {
-      if (wallet.connected && wallet.publicKey) {
-        console.log('Wallet connecté:', wallet.publicKey.toBase58());
-        getUserSOLBalance(wallet.publicKey, connection);
-        
-        // Utiliser setTimeout pour s'assurer que le composant est monté et que le wallet est bien connecté
-        setTimeout(async () => {
-          // Vérifier si c'est un cas de reconnexion du même wallet
-          const lastConnectedWallet = localStorage.getItem('alyraSign_lastConnectedWallet');
-          const lastConnectedRole = localStorage.getItem('alyraSign_lastConnectedRole');
-          
-          if (lastConnectedWallet === wallet.publicKey.toString() && lastConnectedRole) {
-            console.log('Reconnexion détectée pour le même wallet:', lastConnectedWallet);
-            
-            // Rediriger directement selon le rôle sauvegardé
-            if (lastConnectedRole === 'formateur') {
-              router.push('/admin/formations');
-              return;
-            } else if (lastConnectedRole === 'etudiant') {
-              router.push('/etudiants');
-              return;
-            }
-          }
-          
-          // Sinon, vérifier le rôle normalement
-          const userRole = await checkUserRole();
-          console.log('Rôle détecté:', userRole);
-          
-          if (userRole === 'formateur') {
-            router.push('/admin/formations');
-          } else if (userRole === 'etudiant') {
-            router.push('/etudiants');
-          } else {
-            router.push('/access');
-          }
-        }, 500);
-      }
-    };
+    // Si aucune demande n'est trouvée, rediriger vers le formulaire de demande d'accès
+    console.log('Aucune demande trouvée - Redirection vers le formulaire');
+    router.push('/access');
+    return null;
+  }, [wallet.publicKey, router]);
+
+  const checkAndRedirect = useCallback(async () => {
+    console.log("Fonction checkAndRedirect appelée");
+    console.log("Chemin actuel:", router.pathname);
     
-    checkAndRedirect();
-  }, [wallet.connected, wallet.publicKey, connection, getUserSOLBalance, router]);
+    // Vérifier si nous sommes déjà sur une page de dashboard
+    if (router.pathname === '/dashboard' || router.pathname === '/etudiants' || router.pathname === '/admin') {
+      console.log("Déjà sur une page de dashboard, pas de redirection nécessaire");
+      return;
+    }
+
+    // Récupérer les informations de connexion
+    const lastConnectedRole = localStorage.getItem('alyraSign_lastConnectedRole');
+    const lastConnectedWallet = localStorage.getItem('alyraSign_lastConnectedWallet');
+    const onDashboard = localStorage.getItem('alyraSign_onDashboard') === 'true';
+    
+    console.log("Vérification de redirection:", {
+      lastConnectedRole,
+      lastConnectedWallet,
+      onDashboard,
+      currentWallet: wallet?.publicKey?.toString(),
+      isConnected: !!wallet,
+      currentPath: router.pathname
+    });
+
+    // Vérifier si le wallet est connecté et correspond au dernier wallet connu
+    if (wallet && lastConnectedRole && lastConnectedWallet === wallet.publicKey?.toString()) {
+      console.log("Wallet connectée et correspond au dernier rôle connu");
+      
+      // Rediriger en fonction du rôle
+      if (lastConnectedRole === 'etudiant') {
+        console.log("Rôle étudiant détecté, redirection vers le portail étudiant");
+        localStorage.setItem('alyraSign_onDashboard', 'true');
+        router.push('/etudiants');
+      } else if (lastConnectedRole === 'formateur') {
+        console.log("Rôle formateur détecté, redirection vers le portail formateur");
+        localStorage.setItem('alyraSign_onDashboard', 'true');
+        router.push('/admin');
+      } else {
+        console.log("Rôle inconnu:", lastConnectedRole);
+      }
+    } else {
+      console.log("Pas de redirection nécessaire:", {
+        hasWallet: !!wallet,
+        hasLastRole: !!lastConnectedRole,
+        walletMatch: lastConnectedWallet === wallet?.publicKey?.toString()
+      });
+    }
+  }, [wallet, router]);
+
+  // Vérifier le rôle et rediriger quand le wallet change
+  useEffect(() => {
+    console.log("useEffect - wallet.publicKey changé:", wallet.publicKey?.toString());
+    if (wallet.publicKey) {
+      checkUserRole().then(role => {
+        console.log("Rôle trouvé:", role);
+        if (role) {
+          console.log("Rôle trouvé, tentative de redirection");
+          checkAndRedirect();
+        } else {
+          console.log("Aucun rôle trouvé, pas de redirection");
+        }
+      });
+    }
+  }, [wallet.publicKey, checkUserRole, checkAndRedirect]);
+
+  // Vérifier la redirection au chargement initial
+  useEffect(() => {
+    console.log("useEffect - chargement initial");
+    if (wallet.publicKey) {
+      console.log("Wallet déjà connecté au chargement initial");
+      checkAndRedirect();
+    }
+  }, [checkAndRedirect, wallet.publicKey]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-gray-900 to-black p-4">
       <div className="max-w-md w-full bg-black bg-opacity-70 rounded-lg shadow-xl p-8 border border-gray-700">
-        <h1 className="text-4xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-br from-indigo-500 to-blue-500 mb-6">
-          Bienvenue sur AlyraSign
-        </h1>
+        <div className="flex items-center justify-center mb-6">
+          <div className="w-[70px] h-[70px] relative mr-4">
+            <Image 
+              src="/AlyraSign.png" 
+              alt="AlyraSign Logo" 
+              width={200}
+              height={70}
+              sizes="(max-width: 768px) 150px, 200px"
+              priority
+            />
+          </div>
+          <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-indigo-500 to-blue-500">
+            {process.env.NEXT_PUBLIC_APP_NAME || 'AlyraSign'}
+          </h1>
+        </div>
         
         <p className="text-center text-gray-300 mb-8">
-          Application de gestion des présences pour les étudiants
+          {process.env.NEXT_PUBLIC_APP_DESCRIPTION || 'Application de gestion des présences pour les étudiants'}
         </p>
         
         <div className="flex justify-center mb-6">

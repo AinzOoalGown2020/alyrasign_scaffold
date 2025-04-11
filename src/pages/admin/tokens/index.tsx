@@ -1,7 +1,13 @@
 import { FC, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { Connection, clusterApiUrl, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js';
+import { PROGRAM_ID } from '../../../lib/idl/alyrasign';
+import { getAccessRequests, approveAccessRequest, rejectAccessRequest, revokeAccess } from '../../../lib/solana';
+import { toast } from 'react-toastify';
+import Button from '../../../components/Button';
 
 interface TokenRequest {
   id: string;
@@ -9,307 +15,263 @@ interface TokenRequest {
   requestedRole: 'etudiant' | 'formateur';
   message?: string;
   status: 'pending' | 'approved' | 'rejected';
-  timestamp: Date;
+  timestamp: string | Date;
 }
 
 const AdminTokensPage: FC = () => {
   const [requests, setRequests] = useState<TokenRequest[]>([]);
-  const wallet = useWallet();
+  const [loading, setLoading] = useState<boolean>(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [searchWallet, setSearchWallet] = useState<string>('');
+  const [searching, setSearching] = useState<boolean>(false);
+  const [searchResults, setSearchResults] = useState<TokenRequest[]>([]);
   const router = useRouter();
+  const { publicKey } = useWallet();
+  const wallet = useAnchorWallet();
+  const { connection } = useConnection();
   
-  // Simuler la vérification du rôle (à remplacer par une vraie vérification sur la blockchain)
-  const DEV_ADDRESS = "79ziyYSUHVNENrJVinuotWZQ2TX7n44vSeo1cgxFPzSy";
+  // Utiliser la valeur depuis .env.local
+  const ADMIN_WALLET = process.env.NEXT_PUBLIC_ADMIN_WALLET || "79ziyYSUHVNENrJVinuotWZQ2TX7n44vSeo1cgxFPzSy";
   
   useEffect(() => {
-    // Si l'utilisateur n'est pas connecté, rediriger vers la page d'accueil
-    if (!wallet.connected) {
-      router.push('/');
+    if (!publicKey) {
+      router.replace('/');
       return;
     }
     
-    // Vérifier si l'utilisateur a les permissions nécessaires
-    if (wallet.publicKey?.toString() !== DEV_ADDRESS) {
-      router.push('/');
-      return;
-    }
-    
-    // Charger les demandes (simulation)
     loadRequests();
-  }, [wallet.connected, wallet.publicKey, router]);
+  }, [publicKey, router]);
   
-  const loadRequests = () => {
-    // Tenter de récupérer les demandes précédemment traitées du localStorage
-    const processedRequestsJson = localStorage.getItem('alyraSign_processedRequests');
-    let processedRequests: Record<string, 'approved' | 'rejected'> = {};
-    
-    if (processedRequestsJson) {
-      try {
-        processedRequests = JSON.parse(processedRequestsJson);
-      } catch (e) {
-        console.error('Erreur lors de la récupération des demandes traitées:', e);
-      }
-    }
-    
-    // Initialiser un tableau vide pour les demandes
-    let allRequests: TokenRequest[] = [];
-    
-    // Récupérer les demandes en attente du localStorage
-    const pendingRequestsJson = localStorage.getItem('alyraSign_pendingRequests');
-    
-    if (pendingRequestsJson) {
-      try {
-        // Convertir les données JSON en objets avec des dates correctes
-        const parsedRequests = JSON.parse(pendingRequestsJson);
-        allRequests = parsedRequests.map((req: any) => ({
-          ...req,
-          timestamp: new Date(req.timestamp)
-        }));
-      } catch (e) {
-        console.error('Erreur lors de la récupération des demandes en attente:', e);
-      }
-    }
-    
-    // Appliquer les statuts précédemment sauvegardés
-    const updatedRequests = allRequests.map(request => {
-      if (processedRequests[request.id]) {
-        return {
-          ...request,
-          status: processedRequests[request.id]
-        };
-      }
-      return request;
-    });
-    
-    setRequests(updatedRequests);
-  };
-  
-  const handleApprove = async (request: TokenRequest) => {
-    // Simuler l'approbation de la demande
-    console.log(`Approuver la demande pour ${request.walletAddress} en tant que ${request.requestedRole}`);
-    
+  const loadRequests = async () => {
     try {
-      // 1. Créer une transaction Solana pour l'approbation
-      // Cette partie devrait être implémentée avec @solana/web3.js et/ou Anchor
-      /*
-      // Exemple d'implémentation avec Solana web3.js:
-      const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-      
-      // Créer une nouvelle transaction
-      const transaction = new Transaction();
-      
-      // Ajouter l'instruction pour appeler le programme Solana qui gère les rôles
-      // Le program ID serait l'adresse de votre programme déployé sur la blockchain
-      const programId = new PublicKey('VOTRE_PROGRAM_ID_ICI');
-      
-      // Créer l'instruction pour appeler la fonction "approve_role" de votre programme
-      const approveRoleInstruction = new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true }, // L'admin qui approuve
-          { pubkey: new PublicKey(request.walletAddress), isSigner: false, isWritable: true }, // Le wallet qui reçoit le rôle
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false } // Programme système de Solana
-        ],
-        programId,
-        data: Buffer.from(Uint8Array.of(0, ...request.requestedRole.split('').map(c => c.charCodeAt(0)))) // 0 = code d'instruction pour approver, suivi du rôle
-      });
-      
-      // Ajouter l'instruction à la transaction
-      transaction.add(approveRoleInstruction);
-      
-      // Signer et envoyer la transaction
-      const signature = await wallet.sendTransaction(transaction, connection);
-      
-      // Attendre la confirmation
-      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
-      
-      console.log('Transaction confirmée:', signature);
-      */
-      
-      // En attendant l'implémentation réelle, nous simulons avec localStorage
-      // Mettre à jour l'interface utilisateur
-      setRequests(prevRequests => 
-        prevRequests.map(r => 
-          r.id === request.id ? { ...r, status: 'approved' } : r
-        )
-      );
-      
-      // Sauvegarder l'état dans le localStorage
-      saveProcessedRequest(request.id, 'approved');
-      
-      // Notifier l'utilisateur
-      alert(`La demande de ${request.walletAddress} a été approuvée. Dans une implémentation complète, cette approbation serait envoyée à la blockchain Solana.`);
-      
-    } catch (error) {
-      console.error('Erreur lors de l\'approbation de la demande:', error);
-      alert('Une erreur est survenue lors de l\'approbation de la demande.');
-    }
-  };
-  
-  const handleReject = async (request: TokenRequest) => {
-    // Simuler le rejet de la demande
-    console.log(`Rejeter la demande pour ${request.walletAddress}`);
-    
-    try {
-      // 1. Créer une transaction Solana pour le rejet
-      // Cette partie devrait être implémentée avec @solana/web3.js et/ou Anchor
-      /*
-      // Exemple d'implémentation avec Solana web3.js:
-      const connection = new Connection(clusterApiUrl('devnet'), 'confirmed');
-      
-      // Créer une nouvelle transaction
-      const transaction = new Transaction();
-      
-      // Ajouter l'instruction pour appeler le programme Solana qui gère les rôles
-      // Le program ID serait l'adresse de votre programme déployé sur la blockchain
-      const programId = new PublicKey('VOTRE_PROGRAM_ID_ICI');
-      
-      // Créer l'instruction pour appeler la fonction "reject_role" de votre programme
-      const rejectRoleInstruction = new TransactionInstruction({
-        keys: [
-          { pubkey: wallet.publicKey, isSigner: true, isWritable: true }, // L'admin qui rejette
-          { pubkey: new PublicKey(request.walletAddress), isSigner: false, isWritable: true }, // Le wallet qui est rejeté
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false } // Programme système de Solana
-        ],
-        programId,
-        data: Buffer.from(Uint8Array.of(1)) // 1 = code d'instruction pour rejeter
-      });
-      
-      // Ajouter l'instruction à la transaction
-      transaction.add(rejectRoleInstruction);
-      
-      // Signer et envoyer la transaction
-      const signature = await wallet.sendTransaction(transaction, connection);
-      
-      // Attendre la confirmation
-      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
-      
-      console.log('Transaction de rejet confirmée:', signature);
-      */
-      
-      // En attendant l'implémentation réelle, nous simulons avec localStorage
-      // Mettre à jour l'interface utilisateur
-      setRequests(prevRequests => 
-        prevRequests.map(r => 
-          r.id === request.id ? { ...r, status: 'rejected' } : r
-        )
-      );
-      
-      // Sauvegarder l'état dans le localStorage
-      saveProcessedRequest(request.id, 'rejected');
-      
-      // Notifier l'utilisateur
-      alert(`La demande de ${request.walletAddress} a été rejetée. Dans une implémentation complète, ce rejet serait enregistré sur la blockchain Solana.`);
-      
-    } catch (error) {
-      console.error('Erreur lors du rejet de la demande:', error);
-      alert('Une erreur est survenue lors du rejet de la demande.');
-    }
-  };
-  
-  const saveProcessedRequest = (requestId: string, status: 'approved' | 'rejected') => {
-    // Récupérer les demandes traitées existantes
-    const processedRequestsJson = localStorage.getItem('alyraSign_processedRequests');
-    let processedRequests: Record<string, 'approved' | 'rejected'> = {};
-    
-    if (processedRequestsJson) {
-      try {
-        processedRequests = JSON.parse(processedRequestsJson);
-      } catch (e) {
-        console.error('Erreur lors de la récupération des demandes traitées:', e);
+      console.log("Chargement des demandes d'accès...");
+      if (!wallet || !connection) {
+        throw new Error("Wallet non connecté");
+      }
+      const allRequests = await getAccessRequests(wallet, connection);
+      console.log("Demandes d'accès chargées:", allRequests);
+      setRequests(allRequests.map(request => ({
+        ...request,
+        timestamp: new Date(request.timestamp)
+      })));
+    } catch (error: unknown) {
+      console.error('Erreur lors du chargement des demandes:', error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('Une erreur est survenue lors du chargement des demandes');
       }
     }
-    
-    // Ajouter ou mettre à jour la demande traitée
-    processedRequests[requestId] = status;
-    
-    // Sauvegarder dans le localStorage
-    localStorage.setItem('alyraSign_processedRequests', JSON.stringify(processedRequests));
+  };
+  
+  const handleApprove = async (request: any) => {
+    setProcessingId(request.id);
+    try {
+      if (!wallet || !connection) {
+        throw new Error("Wallet non connecté");
+      }
+      
+      const success = await approveAccessRequest(request.id, wallet, connection);
+      if (success) {
+        toast.success(`La demande de ${request.walletAddress} a été approuvée.`);
+        loadRequests();
+      } else {
+        toast.error("Erreur lors de l'approbation de la demande");
+      }
+    } catch (error: unknown) {
+      console.error('Erreur lors de l\'approbation:', error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('Une erreur est survenue lors de l\'approbation');
+      }
+    } finally {
+      setProcessingId(null);
+    }
+  };
+  
+  const handleReject = async (request: any) => {
+    setProcessingId(request.id);
+    try {
+      if (!wallet || !connection) {
+        throw new Error("Wallet non connecté");
+      }
+      
+      const success = await rejectAccessRequest(request.id, wallet, connection);
+      if (success) {
+        toast.success(`La demande de ${request.walletAddress} a été rejetée.`);
+        loadRequests();
+      } else {
+        toast.error("Erreur lors du rejet de la demande");
+      }
+    } catch (error: unknown) {
+      console.error('Erreur lors du rejet:', error);
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('Une erreur est survenue lors du rejet');
+      }
+    } finally {
+      setProcessingId(null);
+    }
   };
   
   const refreshBlockchainData = () => {
-    // Simuler le chargement depuis la blockchain en rechargeant les données initiales
     loadRequests();
-    
-    // Notifier l'utilisateur
-    alert('Les données ont été actualisées depuis la blockchain.');
+    toast.info("Données rafraîchies");
   };
   
-  if (!wallet.connected || wallet.publicKey?.toString() !== DEV_ADDRESS) {
-    return null;
-  }
+  const handleSearch = async () => {
+    if (!searchWallet.trim()) {
+      toast.info("Veuillez entrer une adresse de wallet à rechercher");
+      return;
+    }
+    
+    setSearching(true);
+    try {
+      // Récupérer les demandes pour l'adresse spécifique
+      if (!wallet || !connection) {
+        throw new Error("Wallet non connecté");
+      }
+      const requests = await getAccessRequests(wallet, connection, searchWallet);
+      console.log("Demandes trouvées pour l'adresse:", requests);
+      
+      // Convertir les timestamps en Date et s'assurer que les types correspondent
+      const formattedRequests: TokenRequest[] = requests.map(request => ({
+        ...request,
+        timestamp: new Date(request.timestamp)
+      }));
+      
+      setSearchResults(formattedRequests);
+      
+      if (formattedRequests.length === 0) {
+        toast.info(`Aucun accès trouvé pour l'adresse ${searchWallet}`);
+      } else {
+        const approvedCount = formattedRequests.filter(r => r.status === 'approved').length;
+        const rejectedCount = formattedRequests.filter(r => r.status === 'rejected').length;
+        const pendingCount = formattedRequests.filter(r => r.status === 'pending').length;
+        
+        toast.success(
+          `${formattedRequests.length} accès trouvé(s) pour l'adresse ${searchWallet}: ` +
+          `${approvedCount} approuvé(s), ${rejectedCount} rejeté(s), ${pendingCount} en attente`
+        );
+      }
+    } catch (error) {
+      console.error("Erreur lors de la recherche:", error);
+      toast.error("Erreur lors de la recherche sur la blockchain");
+    } finally {
+      setSearching(false);
+    }
+  };
+  
+  const handleRevokeAccess = async (request: TokenRequest) => {
+    if (!wallet || !connection) {
+      toast.error("Wallet non connecté");
+      return;
+    }
+    
+    setProcessingId(request.id);
+    try {
+      const success = await revokeAccess(request.id, wallet, connection);
+      if (success) {
+        toast.success(`Les droits de ${request.walletAddress} ont été révoqués.`);
+        // Recharger les données après la révocation
+        await loadRequests();
+        // Mettre à jour les résultats de recherche
+        if (searchWallet) {
+          handleSearch();
+        }
+      } else {
+        toast.error("Erreur lors de la révocation des droits");
+      }
+    } catch (error) {
+      console.error("Erreur lors de la révocation des droits:", error);
+      toast.error("Erreur lors de la révocation des droits");
+    } finally {
+      setProcessingId(null);
+    }
+  };
   
   return (
-    <div>
+    <>
       <Head>
-        <title>Administration des Tokens | AlyraSign</title>
-        <meta name="description" content="Administration des tokens pour AlyraSign" />
+        <title>Administration des tokens | AlyraSign</title>
       </Head>
       
-      <div className="container mx-auto p-6">
-        <h1 className="text-3xl font-bold mb-8 text-white">Gestion des autorisations de rôles</h1>
-        
-        <div className="mb-8">
-          <h2 className="text-xl font-semibold mb-4 text-white">Rôles prédéfinis</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-              <h3 className="font-semibold text-blue-400 mb-2">Rôle Formateur</h3>
-              <p className="text-gray-300 text-sm">Accès aux fonctionnalités de gestion des formations, des sessions et des étudiants.</p>
-            </div>
-            <div className="bg-gray-800 p-4 rounded-lg border border-gray-700">
-              <h3 className="font-semibold text-green-400 mb-2">Rôle Étudiant</h3>
-              <p className="text-gray-300 text-sm">Accès aux fonctionnalités de consultation des formations et de gestion des présences.</p>
-            </div>
-          </div>
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold text-white">Gestion des Demandes d'Accès</h1>
+          <Button
+            onClick={refreshBlockchainData}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200"
+            disabled={loading}
+          >
+            {loading ? 'Chargement...' : 'Rafraîchir'}
+          </Button>
         </div>
-        
+
+        <div className="mb-4 p-4 bg-yellow-50 border-l-4 border-yellow-400">
+          <p className="flex items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>
+              Détails de la blockchain : Programme <span className="font-mono">{PROGRAM_ID.toString().substring(0, 4)}...{PROGRAM_ID.toString().substring(PROGRAM_ID.toString().length - 4)}</span> sur {process.env.NEXT_PUBLIC_SOLANA_NETWORK}
+            </span>
+          </p>
+          <p className="mt-1 text-sm text-gray-600">
+            {process.env.NEXT_PUBLIC_USE_BLOCKCHAIN === 'true' 
+              ? 'Les transactions sont envoyées à la blockchain Solana.'
+              : 'Mode simulation : les transactions sont simulées localement.'}
+          </p>
+        </div>
+
+        {/* Section des demandes en attente */}
         <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-white">Demandes d'accès en attente</h2>
-            <button
-              onClick={refreshBlockchainData}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-md flex items-center"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Actualiser depuis la blockchain
-            </button>
-          </div>
-          
-          {requests.length === 0 ? (
-            <p className="text-gray-400">Aucune demande en attente.</p>
+          <h2 className="text-xl font-semibold text-white mb-4">Demandes en attente</h2>
+          {requests.filter(r => r.status === 'pending').length === 0 ? (
+            <div className="text-center p-10 bg-gray-800 rounded">
+              <h3 className="text-lg text-gray-300">Aucune demande en attente</h3>
+            </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+              <table className="min-w-full bg-gray-800 rounded-lg">
                 <thead>
-                  <tr className="bg-gray-700">
-                    <th className="px-4 py-3 text-left text-white">Adresse wallet</th>
-                    <th className="px-4 py-3 text-left text-white">Rôle demandé</th>
-                    <th className="px-4 py-3 text-left text-white">Message</th>
-                    <th className="px-4 py-3 text-left text-white">Date de demande</th>
-                    <th className="px-4 py-3 text-left text-white">Actions</th>
+                  <tr className="bg-gray-700 text-gray-200">
+                    <th className="py-3 px-4 text-left text-sm">ID</th>
+                    <th className="py-3 px-4 text-left text-sm">Adresse du wallet</th>
+                    <th className="py-3 px-4 text-left text-sm">Rôle demandé</th>
+                    <th className="py-3 px-4 text-left text-sm">Message</th>
+                    <th className="py-3 px-4 text-left text-sm">Date</th>
+                    <th className="py-3 px-4 text-left text-sm">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {requests.filter(r => r.status === 'pending').map((request) => (
                     <tr key={request.id} className="border-t border-gray-700">
-                      <td className="px-4 py-3 text-gray-300">{request.walletAddress.substring(0, 6)}...{request.walletAddress.substring(request.walletAddress.length - 4)}</td>
-                      <td className="px-4 py-3 text-gray-300 capitalize">{request.requestedRole}</td>
-                      <td className="px-4 py-3 text-gray-300">{request.message || '—'}</td>
-                      <td className="px-4 py-3 text-gray-300">{request.timestamp.toLocaleString()}</td>
-                      <td className="px-4 py-3">
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.id}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.walletAddress}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.requestedRole}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.message || '-'}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">
+                        {new Date(request.timestamp).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4">
                         <div className="flex space-x-2">
-                          <button
+                          <Button
                             onClick={() => handleApprove(request)}
-                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-md text-sm"
+                            className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200"
+                            disabled={processingId === request.id}
                           >
-                            Approuver
-                          </button>
-                          <button
+                            {processingId === request.id ? 'Traitement...' : 'Approuver'}
+                          </Button>
+                          <Button
                             onClick={() => handleReject(request)}
-                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-md text-sm"
+                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors duration-200"
+                            disabled={processingId === request.id}
                           >
-                            Rejeter
-                          </button>
+                            {processingId === request.id ? 'Traitement...' : 'Rejeter'}
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -319,42 +281,116 @@ const AdminTokensPage: FC = () => {
             </div>
           )}
         </div>
-        
+
+        {/* Section des accès existants */}
         <div>
-          <h2 className="text-xl font-semibold mb-4 text-white">Création manuelle de tokens</h2>
-          <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-white text-sm font-medium mb-2">
-                  Adresse Wallet
-                </label>
-                <input
-                  type="text"
-                  className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 text-white"
-                  placeholder="Adresse du wallet Solana"
-                />
-              </div>
-              <div>
-                <label className="block text-white text-sm font-medium mb-2">
-                  Rôle à assigner
-                </label>
-                <select
-                  className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 text-white"
+          <h2 className="text-xl font-semibold text-white mb-4">Gestion des Accès Existants</h2>
+          
+          <div className="mb-4">
+            <div className="flex items-center">
+              <input
+                type="text"
+                placeholder="Rechercher par adresse de wallet..."
+                value={searchWallet}
+                onChange={(e) => setSearchWallet(e.target.value)}
+                className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleSearch}
+                disabled={searching}
+                className="ml-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center"
+              >
+                {searching ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Recherche...
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    Rechercher
+                  </>
+                )}
+              </button>
+              {searchWallet && (
+                <button
+                  onClick={() => {
+                    setSearchWallet('');
+                    setSearchResults([]);
+                  }}
+                  className="ml-2 p-2 text-gray-400 hover:text-white"
                 >
-                  <option value="etudiant">Étudiant</option>
-                  <option value="formateur">Formateur</option>
-                </select>
-              </div>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
             </div>
-            <button
-              className="mt-6 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md"
-            >
-              Créer et Assigner le Token
-            </button>
           </div>
+          
+          {searchWallet && searchResults.length === 0 && !searching ? (
+            <div className="text-center p-10 bg-gray-800 rounded">
+              <h3 className="text-lg text-gray-300">
+                Aucun accès trouvé pour cette adresse de wallet
+              </h3>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-gray-800 rounded-lg">
+                <thead>
+                  <tr className="bg-gray-700 text-gray-200">
+                    <th className="py-3 px-4 text-left text-sm">ID</th>
+                    <th className="py-3 px-4 text-left text-sm">Adresse du wallet</th>
+                    <th className="py-3 px-4 text-left text-sm">Rôle</th>
+                    <th className="py-3 px-4 text-left text-sm">Message</th>
+                    <th className="py-3 px-4 text-left text-sm">Date</th>
+                    <th className="py-3 px-4 text-left text-sm">Statut</th>
+                    <th className="py-3 px-4 text-left text-sm">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(searchWallet ? searchResults : requests.filter(r => r.status !== 'pending')).map((request) => (
+                    <tr key={request.id} className="border-t border-gray-700">
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.id}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.walletAddress}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.requestedRole}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">{request.message || '-'}</td>
+                      <td className="py-3 px-4 text-gray-200 text-sm">
+                        {new Date(request.timestamp).toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded-full text-xs whitespace-nowrap ${
+                          request.status === 'approved' ? 'bg-green-500 text-white' :
+                          'bg-red-500 text-white'
+                        }`}>
+                          {request.status === 'approved' ? 'Approuvé' : 'Rejeté'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {request.status === 'approved' && (
+                          <Button
+                            onClick={() => handleRevokeAccess(request)}
+                            className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors duration-200"
+                            disabled={processingId === request.id}
+                          >
+                            {processingId === request.id ? 'Traitement...' : 'Retirer les droits'}
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
-    </div>
+    </>
   );
 };
 

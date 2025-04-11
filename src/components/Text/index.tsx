@@ -1,17 +1,18 @@
 import Link from 'next/link';
 import React from 'react';
-import { cn } from 'utils';
+import { cn } from '../../utils';
 
 /**
  * Properties for a card component.
  */
 type TextProps = {
     variant:
-        | 'big-heading'
         | 'heading'
         | 'sub-heading'
         | 'nav-heading'
         | 'nav'
+        | 'paragraph'
+        | 'sub-paragraph'
         | 'input'
         | 'label';
     className?: string;
@@ -26,8 +27,8 @@ type TextProps = {
 const variants = {
     heading: 'text-3xl font-medium',
     'sub-heading': 'text-2xl font-medium',
-    'nav-heading': 'text-lg font-medium sm:text-xl',
-    nav: 'font-medium',
+    'nav-heading': 'text-lg font-medium sm:text-xl whitespace-nowrap',
+    nav: 'font-medium whitespace-nowrap',
     paragraph: 'text-lg',
     'sub-paragraph': 'text-base font-medium text-inherit',
     input: 'text-sm uppercase tracking-wide',
@@ -43,7 +44,7 @@ const variants = {
  * @param className Custom classes to be applied to the element.
  * @param children Child elements to be rendered within the component.
  */
-const Text = ({ variant, className, href, children }: TextProps) => (
+const Text = ({ variant, className = '', href, children }: TextProps) => (
     <p className={cn(className, variants[variant])}>
         {href ? (
             <Link href={href} className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">

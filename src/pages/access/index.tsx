@@ -1,213 +1,203 @@
-import { FC, useEffect, useState } from 'react';
+import React, { useState, useEffect, FC, useMemo } from 'react';
 import { useRouter } from 'next/router';
-import Head from 'next/head';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { toast } from 'react-toastify';
+import { useWallet, useAnchorWallet } from '@solana/wallet-adapter-react';
+import { Connection, clusterApiUrl } from '@solana/web3.js';
+import { Program, AnchorProvider } from '@coral-xyz/anchor';
+import { IDL } from '../../lib/idl/alyrasign';
+import { getAccessRequests, createAccessRequest } from '../../lib/solana';
+import { TransactionFees } from '../../components/TransactionFees';
+import Layout from '../../components/Layout';
+import Card from '../../components/Card';
+import Button from '../../components/Button';
 
-const AccessRequestPage: FC = () => {
-  const [role, setRole] = useState<'etudiant' | 'formateur'>('etudiant');
-  const [message, setMessage] = useState('');
-  const [isChecking, setIsChecking] = useState(true);
-  const wallet = useWallet();
+interface AccessRequest {
+  id: string;
+  walletAddress: string;
+  requestedRole: string;
+  status: string;
+}
+
+export const AccessPage: FC = () => {
   const router = useRouter();
+  const { publicKey, connected } = useWallet();
+  const anchorWallet = useAnchorWallet();
+  const connection = useMemo(() => new Connection(clusterApiUrl('devnet')), []);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [requests, setRequests] = useState<AccessRequest[]>([]);
+  const [userRole, setUserRole] = useState<'admin' | 'user'>('user');
+  const [submitted, setSubmitted] = useState(false);
+  const [hasPendingRequest, setHasPendingRequest] = useState(false);
+  const [role, setRole] = useState<string>('STUDENT');
+  const [message, setMessage] = useState<string>('');
 
-  // Simuler la vérification du rôle (à remplacer par une vraie vérification sur la blockchain)
-  const DEV_ADDRESS = "79ziyYSUHVNENrJVinuotWZQ2TX7n44vSeo1cgxFPzSy";
-  
   useEffect(() => {
-    // Si l'utilisateur n'est pas connecté, rediriger vers la page d'accueil
-    if (!wallet.connected) {
-      setIsChecking(false);
-      router.push('/');
-      return;
-    }
-    
-    // Si l'utilisateur est déjà un développeur avec tous les accès
-    if (wallet.publicKey?.toString() === DEV_ADDRESS) {
-      router.push('/admin/formations');
-      return;
-    }
-    
-    // Vérifier si l'utilisateur a une demande approuvée
-    const checkApprovedRequest = () => {
-      if (!wallet.publicKey) return;
-      
-      // Récupérer les demandes soumises
-      const pendingRequestsJson = localStorage.getItem('alyraSign_pendingRequests');
-      let userRequests = [];
-      
-      if (pendingRequestsJson) {
-        try {
-          userRequests = JSON.parse(pendingRequestsJson);
-        } catch (e) {
-          console.error('Erreur lors de la récupération des demandes:', e);
-        }
-      }
-      
-      // Récupérer les décisions (approuvées/rejetées)
-      const processedRequestsJson = localStorage.getItem('alyraSign_processedRequests');
-      let processedRequests = {};
-      
-      if (processedRequestsJson) {
-        try {
-          processedRequests = JSON.parse(processedRequestsJson);
-        } catch (e) {
-          console.error('Erreur lors de la récupération des statuts:', e);
-        }
-      }
-      
-      // Vérifier si l'utilisateur a une demande approuvée
-      const currentWalletAddress = wallet.publicKey.toString();
-      
-      const userRequest = userRequests.find(req => req.walletAddress === currentWalletAddress);
-      
-      if (userRequest) {
-        if (processedRequests[userRequest.id] === 'approved') {
-          // L'utilisateur a une demande approuvée, le rediriger vers la page appropriée
-          if (userRequest.requestedRole === 'etudiant') {
-            router.push('/etudiants');
-          } else if (userRequest.requestedRole === 'formateur') {
-            router.push('/admin/formations');
-          }
-        } else {
-          setIsChecking(false);
-        }
-      } else {
-        setIsChecking(false);
-      }
-    };
-    
-    checkApprovedRequest();
-    
-  }, [wallet.connected, wallet.publicKey, router]);
-  
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!wallet.publicKey) {
-      return;
-    }
-    
-    // Créer un objet de demande d'accès
-    const accessRequest = {
-      id: `request_${Date.now()}`, // Générer un ID unique basé sur le timestamp
-      walletAddress: wallet.publicKey.toString(),
-      requestedRole: role,
-      message: message,
-      status: 'pending',
-      timestamp: new Date()
-    };
-    
-    // Récupérer les demandes existantes du localStorage
-    const pendingRequestsJson = localStorage.getItem('alyraSign_pendingRequests');
-    let pendingRequests = [];
-    
-    if (pendingRequestsJson) {
+    const loadRequests = async () => {
       try {
-        pendingRequests = JSON.parse(pendingRequestsJson);
-      } catch (e) {
-        console.error('Erreur lors de la récupération des demandes en attente:', e);
+        setLoading(true);
+        setError(null);
+
+        if (!anchorWallet) {
+          setError("Veuillez connecter votre wallet");
+          return;
+        }
+
+        const accessRequests = await getAccessRequests(anchorWallet, connection);
+        setRequests(accessRequests);
+        
+        // Vérifier si l'utilisateur a déjà une demande en attente
+        const hasPending = accessRequests.some(
+          request => request.walletAddress === anchorWallet.publicKey.toString() && 
+                    request.status === 'pending'
+        );
+        setHasPendingRequest(hasPending);
+      } catch (err) {
+        console.error('Erreur lors du chargement des demandes:', err);
+        setError("Erreur lors du chargement des demandes");
+      } finally {
+        setLoading(false);
       }
+    };
+
+    loadRequests();
+  }, [anchorWallet, connection]);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!connected || !anchorWallet) {
+      toast.error("Veuillez connecter votre wallet");
+      return;
     }
-    
-    // Ajouter la nouvelle demande
-    pendingRequests.push(accessRequest);
-    
-    // Sauvegarder dans le localStorage
-    localStorage.setItem('alyraSign_pendingRequests', JSON.stringify(pendingRequests));
-    
-    // Simuler l'envoi d'une demande d'accès à la blockchain
-    console.log('Soumission de la demande d\'accès:', accessRequest);
-    
-    // Ici, vous implémenteriez l'appel au programme Solana pour enregistrer la demande
-    
-    // Afficher une alerte de confirmation
-    alert('Votre demande a été soumise avec succès! Vous serez redirigé vers la page d\'accueil.');
-    
-    // Simuler un délai avant la redirection
-    setTimeout(() => {
-      router.push('/');
-    }, 1500);
-  };
-  
-  if (!wallet.connected) {
-    return null;
-  }
-  
-  return (
-    <div>
-      <Head>
-        <title>Demande d'accès | AlyraSign</title>
-        <meta name="description" content="Demande d'accès à l'application AlyraSign" />
-      </Head>
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      await createAccessRequest(anchorWallet, connection, role, message);
+
+      setSuccess(true);
+      setSubmitted(true);
+      toast.success("Demande d'accès envoyée avec succès!");
       
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-gray-900 to-black p-4">
-        {isChecking ? (
-          <div className="max-w-md w-full bg-black bg-opacity-70 rounded-lg shadow-xl p-8 border border-gray-700">
-            <h2 className="text-xl font-semibold text-center text-white mb-4">Vérification de vos droits d'accès...</h2>
-            <div className="flex justify-center my-4">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      // Recharger les demandes
+      const accessRequests = await getAccessRequests(anchorWallet, connection);
+      setRequests(accessRequests);
+    } catch (err) {
+      console.error('Erreur lors de la création de la demande:', err);
+      setError("Erreur lors de la création de la demande");
+      toast.error("Erreur lors de la création de la demande");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!connected) {
+    return (
+      <Layout>
+        <div className="container mx-auto px-4 py-8">
+          <h1 className="text-3xl font-bold mb-6 text-white">Demande d'accès</h1>
+          <Card>
+            <div className="text-center py-12">
+              <p className="text-lg text-gray-200">Veuillez connecter votre portefeuille pour demander un accès.</p>
             </div>
-          </div>
-        ) : (
-          <div className="max-w-md w-full bg-black bg-opacity-70 rounded-lg shadow-xl p-8 border border-gray-700">
-            <h1 className="text-3xl font-bold text-center text-transparent bg-clip-text bg-gradient-to-br from-indigo-500 to-blue-500 mb-2">
-              Bienvenue sur AlyraSign
-            </h1>
+          </Card>
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-3xl font-bold mb-8">Demande d'accès</h1>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div>
+            <TransactionFees connection={connection} />
             
-            <p className="text-center text-gray-300 mb-6">
-              Application de gestion des présences pour les étudiants
-            </p>
-            
-            <div className="p-6 bg-gray-800 bg-opacity-50 rounded-lg border border-gray-700">
-              <h2 className="text-xl font-semibold text-center text-white mb-4">Demande d'accès</h2>
-              
-              <p className="text-center text-gray-300 mb-2">
-                Vous n'avez pas encore accès à cette application.
-              </p>
-              <p className="text-center text-gray-300 mb-4">
-                Veuillez soumettre une demande d'accès
-              </p>
-              
-              <form onSubmit={handleSubmit}>
-                <div className="mb-4">
-                  <label className="block text-white text-sm font-medium mb-2">
-                    Rôle souhaité
-                  </label>
-                  <select 
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as 'etudiant' | 'formateur')}
-                    className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 text-white"
-                  >
-                    <option value="etudiant">Étudiant</option>
-                    <option value="formateur">Formateur</option>
-                  </select>
-                </div>
-                
-                <div className="mb-6">
-                  <label className="block text-white text-sm font-medium mb-2">
-                    Message (optionnel)
-                  </label>
-                  <textarea
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    className="w-full p-3 bg-gray-700 rounded-md border border-gray-600 text-white h-24 resize-none"
-                    placeholder="Expliquez pourquoi vous demandez l'accès..."
-                  />
-                </div>
-                
-                <button
-                  type="submit"
-                  className="w-full py-3 rounded-md bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold hover:from-blue-700 hover:to-purple-700 transition-colors"
+            <form onSubmit={handleSubmit} className="mt-8">
+              <div>
+                <label htmlFor="role" className="block text-sm font-medium text-gray-200">
+                  Rôle souhaité
+                </label>
+                <select
+                  id="role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 >
-                  Soumettre la demande
-                </button>
-              </form>
-            </div>
+                  <option value="STUDENT">Étudiant</option>
+                  <option value="TEACHER">Formateur</option>
+                </select>
+              </div>
+              
+              <div>
+                <label htmlFor="message" className="block text-sm font-medium text-gray-200">
+                  Message (optionnel)
+                </label>
+                <textarea
+                  id="message"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  rows={4}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                />
+              </div>
+              
+              <div>
+                <Button type="submit" disabled={loading}>
+                  Envoyer la demande
+                </Button>
+              </div>
+            </form>
           </div>
-        )}
+          
+          <div>
+            {loading ? (
+              <Card>
+                <div className="text-center py-12">
+                  <p className="text-lg text-gray-200">Chargement des demandes...</p>
+                </div>
+              </Card>
+            ) : error ? (
+              <Card>
+                <div className="text-center py-12">
+                  <p className="text-lg text-red-500">{error}</p>
+                </div>
+              </Card>
+            ) : hasPendingRequest ? (
+              <Card>
+                <div className="text-center py-12">
+                  <p className="text-lg text-gray-200">Vous avez déjà une demande d'accès en cours.</p>
+                </div>
+              </Card>
+            ) : submitted ? (
+              <Card>
+                <div className="text-center py-12">
+                  <p className="text-lg text-gray-200">Votre demande d'accès a été envoyée avec succès.</p>
+                </div>
+              </Card>
+            ) : (
+              <Card>
+                <div className="text-center py-12">
+                  <p className="text-lg text-gray-200">Demandes d'accès:</p>
+                </div>
+                <div className="mt-4">
+                  {requests.map((req) => (
+                    <div key={req.id} className="text-sm text-gray-200 mb-2">
+                      {req.walletAddress} - {req.requestedRole} - {req.status}
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </Layout>
   );
 };
 
-export default AccessRequestPage; 
+export default AccessPage; 

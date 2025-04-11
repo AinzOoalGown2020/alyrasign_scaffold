@@ -26,7 +26,7 @@ const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
     const { autoConnect } = useAutoConnect();
     const { networkConfiguration } = useNetworkConfiguration();
     const network = networkConfiguration as WalletAdapterNetwork;
-    const endpoint = useMemo(() => clusterApiUrl(network), [network]);
+    const endpoint = useMemo(() => clusterApiUrl(networkConfiguration as WalletAdapterNetwork), [networkConfiguration]);
 
     console.log(network);
 
@@ -40,7 +40,7 @@ const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
             new SlopeWalletAdapter(),
             new GlowWalletAdapter()
         ],
-        [network]
+        []
     );
 
     const onError = useCallback(

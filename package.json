@@ -15,6 +15,7 @@
     "anchor:clean": "anchor clean"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.31.0",
     "@heroicons/react": "^1.0.5",
     "@metaplex-foundation/js": "^0.20.1",
     "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
@@ -34,9 +35,12 @@
     "next-transpile-modules": "^10.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-toastify": "^11.0.5",
     "zustand": "^3.6.9"
   },
   "devDependencies": {
+    "@types/bs58": "^4.0.4",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^18.11.18",
     "@types/react": "^18.0.27",
     "autoprefixer": "^10.4.2",

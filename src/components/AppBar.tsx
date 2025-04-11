@@ -1,11 +1,12 @@
-import { FC } from 'react';
+import { FC, useState, useEffect } from 'react';
 import Link from "next/link";
 import dynamic from 'next/dynamic';
-import React, { useState } from "react";
+import React from "react";
 import { useAutoConnect } from '../contexts/AutoConnectProvider';
 import NetworkSwitcher from './NetworkSwitcher';
 import NavElement from './nav-element';
 import { useWallet } from '@solana/wallet-adapter-react';
+import Image from 'next/image';
 
 const WalletMultiButtonDynamic = dynamic(
   async () => (await import('@solana/wallet-adapter-react-ui')).WalletMultiButton,
@@ -22,29 +23,74 @@ export const AppBar: React.FC = () => {
   const { autoConnect, setAutoConnect } = useAutoConnect();
   const [isNavOpen, setIsNavOpen] = useState(false);
   const wallet = useWallet();
+  const [walletConnected, setWalletConnected] = useState<boolean>(false);
+  
+  // Effet pour suivre l'état de connexion du wallet
+  useEffect(() => {
+    setWalletConnected(wallet.connected);
+  }, [wallet.connected]);
   
   // Simuler la vérification du rôle (à remplacer par la vraie vérification sur la blockchain)
-  const userRole: UserRole = wallet.publicKey?.toString() === DEV_ADDRESS ? 'formateur' : null;
+  const [userRole, setUserRole] = useState<UserRole>(null);
+  
+  useEffect(() => {
+    const checkUserRole = () => {
+      if (wallet.publicKey?.toString() === DEV_ADDRESS) {
+        setUserRole('formateur');
+      } else if (wallet.connected) {
+        // Vérifier le rôle dans le localStorage
+        const lastConnectedRole = localStorage.getItem('alyraSign_lastConnectedRole');
+        const lastConnectedWallet = localStorage.getItem('alyraSign_lastConnectedWallet');
+        
+        if (lastConnectedWallet === wallet.publicKey?.toString() && lastConnectedRole) {
+          setUserRole(lastConnectedRole as UserRole);
+        } else {
+          setUserRole(null);
+        }
+      } else {
+        setUserRole(null);
+      }
+    };
+    
+    checkUserRole();
+  }, [wallet.connected, wallet.publicKey]);
+  
+  // Fonction pour forcer la déconnexion du wallet
+  const handleDisconnect = async () => {
+    try {
+      await wallet.disconnect();
+      setWalletConnected(false);
+      console.log("Wallet déconnecté avec succès");
+    } catch (error) {
+      console.error("Erreur lors de la déconnexion du wallet:", error);
+    }
+  };
   
   return (
     <div className="w-full">
       {/* NavBar / Header */}
       <div className="navbar flex h-20 flex-row md:mb-2 shadow-lg bg-black text-neutral-content border-b border-zinc-600 bg-opacity-66 w-full">
         <div className="navbar-start align-items-center">
-          <div className="hidden sm:inline w-22 h-22 md:p-2 ml-10">
-            <Link href="/" className="text-secondary hover:text-white text-2xl font-bold">
-              AlyraSign
-            </Link>
+          <div className="hidden sm:inline w-22 h-22 md:p-2 ml-10 flex items-center space-x-4">
+            <div className="flex items-center space-x-4">
+              <div className="flex-shrink-0 w-[70px] h-[70px] relative">
+                <Image 
+                  src="/AlyraSign.png" 
+                  alt="AlyraSign Logo" 
+                  width={150}
+                  height={50}
+                  sizes="(max-width: 768px) 100px, 150px"
+                  className="object-contain"
+                  priority
+                />
+              </div>
+              <Link href="/" className="text-secondary hover:text-white text-2xl font-bold">
+                AlyraSign
+              </Link>
+            </div>
           </div>
           <WalletMultiButtonDynamic className="btn-ghost btn-sm relative flex md:hidden text-lg " />
         </div>
-
-        {/* Afficher l'adresse du wallet si connecté */}
-        {wallet.connected && wallet.publicKey && (
-          <div className="hidden md:flex items-center text-sm text-purple-400 mx-4">
-            <span>Wallet: {wallet.publicKey.toString().substring(0, 4)}...{wallet.publicKey.toString().substring(wallet.publicKey.toString().length - 4)}</span>
-          </div>
-        )}
 
         {/* Nav Links */}
         <div className="navbar-end">
@@ -69,15 +115,22 @@ export const AppBar: React.FC = () => {
                   label="Gestion des Formations"
                   href="/admin/formations"
                   navigationStarts={() => setIsNavOpen(false)}
+                  className="whitespace-nowrap"
                 />
                 <NavElement
                   label="Gestion des Étudiants"
                   href="/admin/etudiants"
                   navigationStarts={() => setIsNavOpen(false)}
+                  className="whitespace-nowrap"
                 />
                 <NavElement
                   label="Administration"
-                  href="/admin/tokens"
+                  href="/admin"
+                  navigationStarts={() => setIsNavOpen(false)}
+                />
+                <NavElement
+                  label="Blockchain"
+                  href="/admin/blockchain"
                   navigationStarts={() => setIsNavOpen(false)}
                 />
               </>
@@ -88,6 +141,7 @@ export const AppBar: React.FC = () => {
                 label="Portail Étudiant"
                 href="/etudiants"
                 navigationStarts={() => setIsNavOpen(false)}
+                className="whitespace-nowrap"
               />
             )}
             
@@ -140,7 +194,12 @@ export const AppBar: React.FC = () => {
                     />
                     <NavElement
                       label="Administration"
-                      href="/admin/tokens"
+                      href="/admin"
+                      navigationStarts={() => setIsNavOpen(false)}
+                    />
+                    <NavElement
+                      label="Blockchain"
+                      href="/admin/blockchain"
                       navigationStarts={() => setIsNavOpen(false)}
                     />
                   </>

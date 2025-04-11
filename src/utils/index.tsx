@@ -24,7 +24,7 @@ const numberToCurrencyString = (number: number) =>
  * @returns A number in the range [min, max]
  * @type Number
  */
-const clamp = (current, min, max) => Math.min(Math.max(current, min), max);
+const clamp = (current: number, min: number, max: number) => Math.min(Math.max(current, min), max);
 
 export {
     cn,

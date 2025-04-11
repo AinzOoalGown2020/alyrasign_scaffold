@@ -1,7 +1,9 @@
-import { FC, useEffect, useState } from 'react';
+import { FC, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { recordAttendance, getStudentAttendances } from '../../lib/solana';
+import { toast } from 'react-toastify';
 
 interface Session {
   id: string;
@@ -22,23 +24,63 @@ interface Formation {
   sessions: Session[];
 }
 
+interface Attendance {
+  sessionId: string;
+}
+
 const EtudiantPortalPage: FC = () => {
   const [formations, setFormations] = useState<Formation[]>([]);
   const [nextSession, setNextSession] = useState<Session | null>(null);
+  const [isSigningAttendance, setIsSigningAttendance] = useState<boolean>(false);
+  const [attendances, setAttendances] = useState<Attendance[]>([]);
+  const [isLoadingAttendances, setIsLoadingAttendances] = useState<boolean>(false);
   
   const wallet = useWallet();
+  const { connection } = useConnection();
   const router = useRouter();
   
-  useEffect(() => {
-    // Si l'utilisateur n'est pas connecté, rediriger vers la page d'accueil
-    if (!wallet.connected) {
-      router.push('/');
-      return;
+  const loadAttendances = useCallback(async () => {
+    if (!wallet.publicKey) return;
+    try {
+      const attendances = await getStudentAttendances(wallet.publicKey, wallet, connection);
+      setAttendances(attendances);
+      
+      // Mettre à jour le statut de présence dans les sessions
+      if (attendances.length > 0) {
+        setFormations(prevFormations => {
+          return prevFormations.map(formation => {
+            const updatedSessions = formation.sessions.map(session => {
+              const attendance = attendances.find((a: Attendance) => a.sessionId === session.id);
+              if (attendance) {
+                return {
+                  ...session,
+                  attended: attendance.isPresent
+                };
+              }
+              return session;
+            });
+            
+            return {
+              ...formation,
+              sessions: updatedSessions
+            };
+          });
+        });
+      }
+    } catch (error) {
+      console.error('Erreur lors du chargement des présences:', error);
+      toast.error('Une erreur est survenue lors du chargement de vos présences.');
     }
-    
-    // Charger les formations de l'étudiant (simulation)
-    loadStudentData();
-  }, [wallet.connected, wallet.publicKey, router]);
+  }, [wallet, connection]);
+  
+  useEffect(() => {
+    if (wallet.connected && wallet.publicKey) {
+      loadStudentData();
+      loadAttendances();
+    } else {
+      router.push('/');
+    }
+  }, [wallet.connected, wallet.publicKey, router, loadAttendances]);
   
   const loadStudentData = () => {
     // Simuler le chargement des formations de l'étudiant depuis la blockchain
@@ -110,6 +152,46 @@ const EtudiantPortalPage: FC = () => {
     }
   };
   
+  const handleSignAttendance = async () => {
+    if (!nextSession) return;
+    
+    try {
+      setIsSigningAttendance(true);
+      
+      // S'assurer que l'ID de session est sous forme numérique
+      // Cela correspond à la structure attendue par le smart contract Solana
+      const sessionIdNumber = nextSession.id;
+      
+      const result = await recordAttendance(
+        sessionIdNumber, 
+        true, 
+        'Présence enregistrée via l\'application',
+        wallet,
+        connection
+      );
+      
+      if (result) {
+        toast.success('Votre présence a été enregistrée avec succès !');
+        
+        // Mettre à jour l'UI pour montrer que la présence a été enregistrée
+        setNextSession(prev => {
+          if (!prev) return null;
+          return { ...prev, attended: true };
+        });
+        
+        // Recharger l'historique des présences
+        loadAttendances();
+      } else {
+        toast.error('Une erreur est survenue lors de l\'enregistrement de votre présence.');
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'enregistrement de la présence:', error);
+      toast.error('Une erreur est survenue lors de l\'enregistrement de votre présence.');
+    } finally {
+      setIsSigningAttendance(false);
+    }
+  };
+  
   if (!wallet.connected) {
     return null;
   }
@@ -146,8 +228,22 @@ const EtudiantPortalPage: FC = () => {
                 {nextSession.startTime} - {nextSession.endTime}
               </div>
             </div>
-            <button className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-md">
-              Signer ma présence
+            <button 
+              onClick={handleSignAttendance}
+              disabled={isSigningAttendance || (nextSession?.attended === true)}
+              className={`w-full py-3 ${
+                nextSession?.attended 
+                  ? 'bg-green-600 cursor-not-allowed' 
+                  : isSigningAttendance 
+                    ? 'bg-gray-600 cursor-wait' 
+                    : 'bg-blue-600 hover:bg-blue-700'
+              } text-white font-semibold rounded-md transition-colors`}
+            >
+              {nextSession?.attended 
+                ? 'Présence déjà signée' 
+                : isSigningAttendance 
+                  ? 'Enregistrement en cours...' 
+                  : 'Signer ma présence'}
             </button>
           </div>
         )}
@@ -192,7 +288,12 @@ const EtudiantPortalPage: FC = () => {
         </div>
         
         <div>
-          <h2 className="text-xl font-semibold text-white mb-6">Historique des Présences</h2>
+          <h2 className="text-xl font-semibold text-white mb-6">
+            Historique des Présences
+            {isLoadingAttendances && (
+              <span className="ml-2 inline-block text-sm text-gray-400">(Chargement...)</span>
+            )}
+          </h2>
           
           <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
             <table className="min-w-full">
@@ -207,31 +308,36 @@ const EtudiantPortalPage: FC = () => {
               </thead>
               <tbody>
                 {formations.flatMap(formation => 
-                  formation.sessions.map(session => (
-                    <tr key={session.id} className="border-t border-gray-700">
-                      <td className="px-4 py-3 text-gray-300">{formation.title}</td>
-                      <td className="px-4 py-3 text-gray-300">{session.title}</td>
-                      <td className="px-4 py-3 text-gray-300">{session.date.toLocaleDateString()}</td>
-                      <td className="px-4 py-3 text-gray-300">{session.startTime} - {session.endTime}</td>
-                      <td className="px-4 py-3">
-                        {session.date < new Date() ? (
-                          session.attended ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900 text-green-300">
-                              Présent
-                            </span>
+                  formation.sessions.map(session => {
+                    // Trouver l'enregistrement de présence correspondant
+                    const sessionAttendance = attendances.find((a: Attendance) => a.sessionId === session.id);
+                    
+                    return (
+                      <tr key={session.id} className="border-t border-gray-700">
+                        <td className="px-4 py-3 text-gray-300">{formation.title}</td>
+                        <td className="px-4 py-3 text-gray-300">{session.title}</td>
+                        <td className="px-4 py-3 text-gray-300">{session.date.toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-gray-300">{session.startTime} - {session.endTime}</td>
+                        <td className="px-4 py-3">
+                          {session.date < new Date() ? (
+                            sessionAttendance || session.attended ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900 text-green-300">
+                                Présent
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-300">
+                                Absent
+                              </span>
+                            )
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-900 text-red-300">
-                              Absent
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-300">
+                              À venir
                             </span>
-                          )
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-300">
-                            À venir
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
