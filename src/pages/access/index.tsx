@@ -96,7 +96,7 @@ export const AccessPage: FC = () => {
   return (
     <Layout>
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold mb-8 text-white">Demande d'accès</h1>
+        <h1 className="text-3xl font-bold mb-8 text-white text-center">Demande d'accès</h1>
         
         <div className="max-w-2xl mx-auto">
           <Card>
