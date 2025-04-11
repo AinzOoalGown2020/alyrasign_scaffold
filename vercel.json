@@ -6,7 +6,7 @@
   "framework": "nextjs",
   "regions": ["cdg1"],
   "env": {
-    "NEXT_PUBLIC_ATTENDANCE_STORAGE_SEED": "@attendance_storage_seed",
-    "NEXT_PUBLIC_ACCESS_STORAGE_SEED": "@access_storage_seed"
+    "NEXT_PUBLIC_ATTENDANCE_STORAGE_SEED": "attendance-storage",
+    "NEXT_PUBLIC_ACCESS_STORAGE_SEED": "access-storage"
   }
 } 
