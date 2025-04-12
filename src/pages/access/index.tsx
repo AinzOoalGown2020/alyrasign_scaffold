@@ -6,7 +6,6 @@ import { Connection, clusterApiUrl } from '@solana/web3.js';
 import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { IDL } from '../../lib/idl/alyrasign';
 import { getAccessRequests, createAccessRequest } from '../../lib/solana';
-import { TransactionFees } from '../../components/TransactionFees';
 import Layout from '../../components/Layout';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
@@ -108,8 +107,6 @@ export const AccessPage: FC = () => {
                 </p>
               </div>
             </div>
-            
-            <TransactionFees connection={connection} />
           </Card>
           
           {hasPendingRequest ? (

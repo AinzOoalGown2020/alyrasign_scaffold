@@ -701,8 +701,6 @@ export default function BlockchainTestConsole() {
                 Cette console est {process.env.NEXT_PUBLIC_USE_BLOCKCHAIN === 'true' ? 'configurée pour utiliser la blockchain' : 'actuellement en mode démonstration et simule les interactions blockchain avec localStorage'}.
                 <br /><br />
                 Valeur actuelle de NEXT_PUBLIC_USE_BLOCKCHAIN: <code>{process.env.NEXT_PUBLIC_USE_BLOCKCHAIN}</code>
-                <br /><br />
-                Assurez-vous d'avoir suffisamment de SOL dans votre wallet pour payer les frais de transaction.
               </p>
             </Card>
           </div>

@@ -29,6 +29,7 @@ const AdminTokensPage: FC = () => {
   const { publicKey } = useWallet();
   const wallet = useAnchorWallet();
   const { connection } = useConnection();
+  const [selectedRole, setSelectedRole] = useState<string>('etudiant');
   
   // Utiliser la valeur depuis .env.local
   const ADMIN_WALLET = process.env.NEXT_PUBLIC_ADMIN_WALLET || "79ziyYSUHVNENrJVinuotWZQ2TX7n44vSeo1cgxFPzSy";
@@ -71,9 +72,9 @@ const AdminTokensPage: FC = () => {
         throw new Error("Wallet non connecté");
       }
       
-      const success = await approveAccessRequest(request.id, wallet, connection);
+      const success = await approveAccessRequest(request.id, wallet, connection, selectedRole);
       if (success) {
-        toast.success(`La demande de ${request.walletAddress} a été approuvée.`);
+        toast.success(`La demande de ${request.walletAddress} a été approuvée avec le rôle ${selectedRole}.`);
         loadRequests();
       } else {
         toast.error("Erreur lors de l'approbation de la demande");
@@ -258,6 +259,15 @@ const AdminTokensPage: FC = () => {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex space-x-2">
+                          <select
+                            value={selectedRole}
+                            onChange={(e) => setSelectedRole(e.target.value)}
+                            className="px-3 py-1 bg-gray-700 text-white rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            disabled={processingId === request.id}
+                          >
+                            <option value="etudiant">Étudiant</option>
+                            <option value="formateur">Formateur</option>
+                          </select>
                           <Button
                             onClick={() => handleApprove(request)}
                             className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200"

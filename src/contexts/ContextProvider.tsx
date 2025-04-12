@@ -33,15 +33,15 @@ const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
 
     const wallets = useMemo(
         () => [
-            new PhantomWalletAdapter(),
-            new SolflareWalletAdapter(),
-            new BackpackWalletAdapter(),
+            new PhantomWalletAdapter({ network }),
+            new SolflareWalletAdapter({ network }),
+            new BackpackWalletAdapter({ network }),
             new TorusWalletAdapter(),
             new LedgerWalletAdapter(),
-            new SlopeWalletAdapter(),
-            new GlowWalletAdapter()
+            new SlopeWalletAdapter({ network }),
+            new GlowWalletAdapter({ network })
         ],
-        []
+        [network]
     );
 
     const onError = useCallback(

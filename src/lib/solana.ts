@@ -7,6 +7,7 @@ import { toast } from 'react-toastify';
 import { IDL, PROGRAM_ID } from './idl/alyrasign';
 import { AnchorWallet } from '@solana/wallet-adapter-react';
 import { BN } from '@coral-xyz/anchor';
+import { TransactionMessage, LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 // Définir le type pour le programme AlyraSign
 export type AlyraSignProgram = Program<any>;
@@ -100,6 +101,7 @@ export const ERROR_ADMIN_REJECT_MESSAGE = process.env.NEXT_PUBLIC_ERROR_ADMIN_RE
 
 // Variable pour contrôler l'utilisation de la blockchain
 const USE_BLOCKCHAIN = process.env.NEXT_PUBLIC_USE_BLOCKCHAIN === 'true';
+console.log("USE_BLOCKCHAIN value:", USE_BLOCKCHAIN, "Type:", typeof USE_BLOCKCHAIN);
 
 // Types d'erreurs possibles
 export const ErrorTypes = {
@@ -126,24 +128,7 @@ export const getProvider = (wallet: any, connection: any): AnchorProvider => {
 };
 
 /**
- * Estime les frais de transaction
- */
-export const estimateTransactionFees = async (connection: Connection): Promise<number> => {
-  try {
-    const recentPrioritizationFees = await connection.getRecentPrioritizationFees();
-    if (recentPrioritizationFees.length === 0) {
-      return 0.000005; // Frais par défaut en SOL
-    }
-    // Utiliser la première entrée pour obtenir les frais
-    return recentPrioritizationFees[0].prioritizationFee / 1e9; // Convertir en SOL
-  } catch (error) {
-    console.error("Erreur lors de l'estimation des frais:", error);
-    return 0.000005; // Frais par défaut en SOL
-  }
-};
-
-/**
- * Fonction utilitaire pour obtenir le programme avec estimation des frais
+ * Fonction utilitaire pour obtenir le programme
  */
 export const getProgram = async (wallet: AnchorWallet, connection: Connection): Promise<AlyraSignProgram | null> => {
   try {
@@ -164,10 +149,6 @@ export const getProgram = async (wallet: AnchorWallet, connection: Connection): 
       console.warn("Wallet connecté mais pas de clé publique disponible");
       return null;
     }
-    
-    // Estimer les frais de transaction
-    const fees = await estimateTransactionFees(connection);
-    console.log("Frais de transaction estimés:", fees, "SOL");
     
     const provider = new AnchorProvider(
       connection,
@@ -196,12 +177,12 @@ export const findAccessStoragePDA = async () => {
 };
 
 // Fonction pour trouver le PDA d'une demande d'accès
-const findAccessRequestPDA = async (storagePDA: PublicKey, index: number) => {
+export const findAccessRequestPDA = async (storagePDA: PublicKey, index: number) => {
   return await PublicKey.findProgramAddress(
     [
-      Buffer.from('access_request'),
+      Buffer.from(REQUEST_SEED),
       storagePDA.toBuffer(),
-      Buffer.from(index.toString())
+      new BN(index).toArrayLike(Buffer, 'le', 8)
     ],
     PROGRAM_ID
   );
@@ -240,136 +221,66 @@ export interface AccessRequest {
 // Fonction pour récupérer les demandes d'accès
 export const getAccessRequests = async (
   wallet: AnchorWallet,
-  connection: Connection,
-  walletAddress?: string
+  connection: Connection
 ): Promise<AccessRequest[]> => {
   try {
-    console.log("getAccessRequests appelé", { 
-      walletAddress,
-      useBlockchain: USE_BLOCKCHAIN,
-      walletConnected: wallet?.publicKey?.toString()
-    });
-    
     if (!USE_BLOCKCHAIN) {
-      console.log("Mode simulation activé - Utilisation du localStorage");
-      const pendingRequestsJson = localStorage.getItem('alyraSign_pendingRequests');
-      const processedRequestsJson = localStorage.getItem('alyraSign_processedRequests');
-      
-      const pendingRequests = pendingRequestsJson ? JSON.parse(pendingRequestsJson) : [];
-      const processedRequests = processedRequestsJson ? JSON.parse(processedRequestsJson) : {};
-      
-      let allRequests = [...pendingRequests];
-      if (processedRequests) {
-        allRequests = allRequests.concat(Object.values(processedRequests));
-      }
-      
-      if (walletAddress) {
-        return allRequests.filter(r => r.walletAddress === walletAddress);
-      }
-      
-      return allRequests;
+      // Mode simulation
+      const requests = JSON.parse(localStorage.getItem('accessRequests') || '[]');
+      return requests.map((req: any) => ({
+        id: req.id,
+        walletAddress: req.walletAddress,
+        requestedRole: req.requestedRole,
+        message: req.message,
+        timestamp: req.timestamp,
+        status: req.status as 'pending' | 'approved' | 'rejected'
+      }));
     }
 
     const program = await getProgram(wallet, connection);
-    
     if (!program) {
-      console.warn("Programme non disponible, vérifiez la connexion du wallet et la connexion à Solana");
-      return [];
+      throw new Error("Programme non disponible");
     }
 
     // Récupérer le PDA du stockage
     const [storagePDA] = await findAccessStoragePDA();
-    console.log("Storage PDA trouvé:", storagePDA.toString());
-    
-    // Récupérer le compte de stockage pour obtenir le compteur
+    console.log("Storage PDA pour getAccessRequests:", storagePDA.toString());
+
+    // Récupérer le compte de stockage
     const storageAccount = await (program.account as any).accessRequestStorage.fetch(storagePDA);
     console.log("Compte de stockage trouvé:", storageAccount);
-    
-    // Si une adresse spécifique est fournie
-    if (walletAddress) {
-      try {
-        const publicKey = new PublicKey(walletAddress);
-        
-        // Parcourir tous les indices possibles jusqu'à ce qu'on trouve la demande
-        for (let i = 0; i < storageAccount.requestCount; i++) {
-          try {
-            const [requestPDA] = await PublicKey.findProgramAddress(
-              [
-                Buffer.from(REQUEST_SEED),
-                publicKey.toBuffer(),
-                new BN(i).toArrayLike(Buffer, 'le', 8)
-              ],
-              PROGRAM_ID
-            );
-            
-            console.log("Recherche de demande pour l'adresse:", walletAddress, "index:", i);
-            
-            try {
-              const requestAccount = await (program.account as any).accessRequest.fetch(requestPDA);
-              console.log("Compte de demande trouvé:", requestAccount);
-              
-              if (requestAccount && requestAccount.requester.toString() === walletAddress) {
-                return [{
-                  id: requestPDA.toString(),
-                  walletAddress: requestAccount.requester.toString(),
-                  requestedRole: requestAccount.role as 'etudiant' | 'formateur',
-                  message: requestAccount.message,
-                  timestamp: new Date(requestAccount.createdAt.toNumber() * 1000).toISOString(),
-                  status: requestAccount.status as 'pending' | 'approved' | 'rejected'
-                }];
-              }
-            } catch (error) {
-              console.log("Pas de demande à l'index", i);
-            }
-          } catch (error) {
-            console.log("Erreur lors de la recherche du PDA pour l'index", i);
-          }
-        }
-        console.log("Aucune demande trouvée pour cette adresse");
-        return [];
-      } catch (error) {
-        console.log("Erreur lors de la recherche de demande:", error);
-        return [];
-      }
-    }
-    
-    // Si aucune adresse n'est fournie, récupérer toutes les demandes
+    console.log("Nombre total de demandes:", storageAccount.requestCount);
+
     const requests: AccessRequest[] = [];
     
-    // Parcourir tous les indices possibles
+    // Parcourir toutes les demandes
     for (let i = 0; i < storageAccount.requestCount; i++) {
       try {
-        const [requestPDA] = await PublicKey.findProgramAddress(
-          [
-            Buffer.from(REQUEST_SEED),
-            storagePDA.toBuffer(),
-            new BN(i).toArrayLike(Buffer, 'le', 8)
-          ],
-          PROGRAM_ID
-        );
+        const [requestPDA] = await findAccessRequestPDA(storagePDA, i);
+        console.log(`Recherche de la demande ${i} à l'adresse:`, requestPDA.toString());
         
-        try {
-          const requestAccount = await (program.account as any).accessRequest.fetch(requestPDA);
-          
+        const requestAccount = await (program.account as any).accessRequest.fetch(requestPDA);
+        console.log(`Demande ${i} trouvée:`, requestAccount);
+
+        if (requestAccount) {
           requests.push({
-            id: requestPDA.toString(),
+            id: i.toString(),
             walletAddress: requestAccount.requester.toString(),
-            requestedRole: requestAccount.role as 'etudiant' | 'formateur',
+            requestedRole: requestAccount.role,
             message: requestAccount.message,
-            timestamp: new Date(requestAccount.createdAt.toNumber() * 1000).toISOString(),
-            status: requestAccount.status as 'pending' | 'approved' | 'rejected'
+            timestamp: new Date(requestAccount.timestamp * 1000).toISOString(),
+            status: requestAccount.status
           });
-        } catch (error) {
-          console.log("Pas de demande à l'index", i);
         }
       } catch (error) {
-        console.log("Erreur lors de la recherche du PDA pour l'index", i);
+        console.error(`Erreur lors de la récupération de la demande ${i}:`, error);
       }
     }
-    
+
+    console.log("Demandes récupérées:", requests);
     return requests;
   } catch (error) {
-    console.error("Erreur dans getAccessRequests:", error);
+    console.error("Erreur lors de la récupération des demandes d'accès:", error);
     return [];
   }
 };
@@ -612,14 +523,20 @@ export const createAccessRequest = async (
       throw new Error("Programme non disponible");
     }
 
-    // Estimer les frais avant la transaction
-    const fees = await estimateTransactionFees(connection);
-    console.log("Frais estimés pour la demande d'accès:", fees, "SOL");
-
+    // Récupérer le PDA du stockage
     const [storagePDA] = await findAccessStoragePDA();
-    const [requestPDA] = await findAccessRequestPDA(storagePDA, 0);
+    console.log("Storage PDA trouvé:", storagePDA.toString());
 
-    await (program.methods as any)
+    // Récupérer le compte de stockage pour obtenir le compteur
+    const storageAccount = await (program.account as any).accessRequestStorage.fetch(storagePDA);
+    console.log("Compte de stockage trouvé:", storageAccount);
+    
+    // Utiliser le compteur actuel pour créer le PDA de la demande
+    const [requestPDA] = await findAccessRequestPDA(storagePDA, storageAccount.requestCount);
+    console.log("Request PDA créé:", requestPDA.toString());
+
+    // Créer la demande d'accès avec les options de transaction
+    const tx = await (program.methods as any)
       .createAccessRequest(requestedRole, message)
       .accounts({
         storage: storagePDA,
@@ -627,9 +544,15 @@ export const createAccessRequest = async (
         requester: wallet.publicKey,
         systemProgram: SystemProgram.programId,
       })
+      .options({
+        commitment: 'confirmed',
+        preflightCommitment: 'confirmed',
+        skipPreflight: false,
+      })
       .rpc();
 
-    toast.success(`Demande d'accès créée avec succès! Frais: ${fees} SOL`);
+    console.log("Transaction signature:", tx);
+    toast.success("Demande d'accès créée avec succès!");
     return true;
   } catch (error) {
     console.error("Erreur lors de la création de la demande d'accès:", error);
@@ -651,68 +574,88 @@ export const calculateRequestPDA = async (walletAddress: PublicKey): Promise<PDA
 /**
  * Fonction pour approuver une demande d'accès
  */
-export const approveAccessRequest = async (requestId: string, wallet: any, connection: Connection): Promise<boolean> => {
+export const approveAccessRequest = async (
+  requestId: string, 
+  wallet: any, 
+  connection: Connection,
+  selectedRole: string
+): Promise<boolean> => {
   try {
-    console.log("approveAccessRequest appelé avec:", { requestId, walletConnected: !!wallet });
-    
-    // Version simulation (localStorage)
-    const pendingRequestsJson = localStorage.getItem('alyraSign_pendingRequests');
-    const processedRequestsJson = localStorage.getItem('alyraSign_processedRequests');
-    
-    if (!pendingRequestsJson || !processedRequestsJson) {
-      throw new Error("Données non disponibles");
-    }
-    
-    const pendingRequests = JSON.parse(pendingRequestsJson);
-    const processedRequests = JSON.parse(processedRequestsJson);
-    
-    console.log("Demandes en attente avant traitement:", pendingRequests);
-    console.log("Demandes traitées avant traitement:", processedRequests);
-    
-    // Trouver la demande à approuver
-    const requestIndex = pendingRequests.findIndex((req: any) => req.id === requestId);
-    if (requestIndex === -1) {
-      throw new Error("Demande non trouvée");
-    }
-    
-    const request = pendingRequests[requestIndex];
-    console.log("Demande à approuver:", request);
-    
-    // Mettre à jour le statut
-    request.status = 'approved';
-    request.processedAt = new Date().toISOString();
-    
-    // Déplacer la demande vers les demandes traitées
-    processedRequests[requestId] = request;
-    pendingRequests.splice(requestIndex, 1);
-    
-    console.log("Demandes en attente après traitement:", pendingRequests);
-    console.log("Demandes traitées après traitement:", processedRequests);
-    
-    // Sauvegarder les modifications
-    localStorage.setItem('alyraSign_pendingRequests', JSON.stringify(pendingRequests));
-    localStorage.setItem('alyraSign_processedRequests', JSON.stringify(processedRequests));
-    
-    // Stocker l'information de reconnexion pour prévenir les boucles infinies
-    localStorage.setItem('alyraSign_lastConnectedRole', request.requestedRole);
-    localStorage.setItem('alyraSign_lastConnectedWallet', request.walletAddress);
-    localStorage.setItem('alyraSign_onDashboard', 'false');
-    
-    console.log("Informations de reconnexion stockées:", {
-      role: request.requestedRole,
-      wallet: request.walletAddress,
-      onDashboard: false
+    console.log("approveAccessRequest appelé avec:", { 
+      requestId, 
+      walletConnected: !!wallet,
+      selectedRole 
     });
-  
-    return true;
-  } catch (error: unknown) {
-    console.error('Erreur lors de l\'approbation de la demande:', error);
-    if (error instanceof Error) {
-      toast.error(error.message);
-    } else {
-      toast.error('Une erreur est survenue lors de l\'approbation');
+    
+    if (!USE_BLOCKCHAIN) {
+      // Version simulation (localStorage)
+      const pendingRequestsJson = localStorage.getItem('alyraSign_pendingRequests');
+      const processedRequestsJson = localStorage.getItem('alyraSign_processedRequests');
+      
+      if (!pendingRequestsJson || !processedRequestsJson) {
+        throw new Error("Données non disponibles");
+      }
+      
+      const pendingRequests = JSON.parse(pendingRequestsJson);
+      const processedRequests = JSON.parse(processedRequestsJson);
+      
+      console.log("Demandes en attente avant traitement:", pendingRequests);
+      console.log("Demandes traitées avant traitement:", processedRequests);
+      
+      // Trouver la demande à approuver
+      const requestIndex = pendingRequests.findIndex((req: any) => req.id === requestId);
+      if (requestIndex === -1) {
+        throw new Error("Demande non trouvée");
+      }
+      
+      const request = pendingRequests[requestIndex];
+      console.log("Demande à approuver:", request);
+      
+      // Mettre à jour le statut et le rôle
+      request.status = 'approved';
+      request.requestedRole = selectedRole;
+      request.processedAt = new Date().toISOString();
+      
+      // Déplacer la demande vers les demandes traitées
+      processedRequests[requestId] = request;
+      pendingRequests.splice(requestIndex, 1);
+      
+      console.log("Demandes en attente après traitement:", pendingRequests);
+      console.log("Demandes traitées après traitement:", processedRequests);
+      
+      // Sauvegarder les modifications
+      localStorage.setItem('alyraSign_pendingRequests', JSON.stringify(pendingRequests));
+      localStorage.setItem('alyraSign_processedRequests', JSON.stringify(processedRequests));
+      
+      // Stocker l'information de reconnexion pour prévenir les boucles infinies
+      localStorage.setItem('alyraSign_lastConnectedRole', selectedRole);
+      
+      return true;
     }
-    return false;
+
+    const program = await getProgram(wallet, connection);
+    if (!program) {
+      throw new Error("Programme non disponible");
+    }
+
+    // Récupérer le PDA de la demande
+    const [storagePDA] = await findAccessStoragePDA();
+    const requestIdNumber = parseInt(requestId, 10);
+    const [requestPDA] = await findAccessRequestPDA(storagePDA, requestIdNumber);
+    
+    // Approuver la demande avec le rôle sélectionné
+    await (program.methods as any)
+      .approveAccessRequest(selectedRole)
+      .accounts({
+        request: requestPDA,
+        admin: wallet.publicKey,
+      })
+      .rpc();
+
+    return true;
+  } catch (error) {
+    console.error("Erreur dans approveAccessRequest:", error);
+    throw error;
   }
 };
 
